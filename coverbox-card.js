@@ -393,45 +393,13 @@ set hass(hass) {
 	}
 	this._hass = hass;
 	
-	if (this.stateObj) { // This was vibe coded
-        	const entityDomain = this.config.entity.split('.')[0];
-        	let potentialState;
-
-        	// Path 1: User explicitly configured a 'state' attribute in the card's config.
-        	// This takes precedence. The value read here will be handled by niceNum.
-	        if (this.config.state && this.stateObj.attributes.hasOwnProperty(this.config.state)) {
-	            potentialState = this.stateObj.attributes[this.config.state];
-	            this.state = potentialState;
-	        }
-	        // Path 2: It's a 'cover' entity, and 'state' was not configured above (or not found).
-	        // This is where your request "I only want it to return current_position, otherwise return 0" applies.
-	        else if (entityDomain === 'cover') {
-	            if (this.stateObj.attributes.hasOwnProperty('current_position')) {
-	                const currentPos = this.stateObj.attributes.current_position;
-	                // Check if currentPos is a valid number
-	                if (typeof currentPos === 'number' && !isNaN(currentPos)) {
-	                    this.state = currentPos;
-	                } else {
-	                    // current_position is not a valid number (e.g., null, undefined, or a string like "unknown")
-	                    this.state = 0; // Default to 0 as requested
-	                }
-	            } else {
-	                // current_position attribute doesn't exist for this cover
+	if (this.stateObj) { 
+		const currentPos = this.stateObj.attributes.current_position;
+	        if (typeof currentPos === 'number' && !isNaN(currentPos)) {
+	        	this.state = currentPos;
+	        } else {
 	                this.state = 0; // Default to 0 as requested
-	            }
 	        }
-	        // Path 3: Not a cover (and no overriding this.config.state from Path 1),
-	        // or it's a cover but neither Path 1 nor Path 2 applied (shouldn't typically happen for covers here).
-	        // Fallback to the main state of the entity. This value will be handled by niceNum.
-	        else {
-	            potentialState = this.stateObj.state;
-	            this.state = potentialState;
-	        }
-	    } else {
-	        // Entity not found (this.stateObj is null).
-	        // Consistent with "otherwise return 0" for the primary purpose of cover position.
-	        this.state = 0;
-	    }
 	}
 }
 
