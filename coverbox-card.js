@@ -1,9 +1,9 @@
 ((LitElement) => {
 
-console.info('NUMBERBOX_CARD 4.17');
+console.info('COVERBOX_CARD 4.17');
 const html = LitElement.prototype.html;
 const css = LitElement.prototype.css;
-class NumberBox extends LitElement {
+class CoverBox extends LitElement {
 
 constructor() {
 	super();
@@ -366,14 +366,14 @@ getCardSize() {
 setConfig(config) {
 	if (!config.entity) throw new Error('Please define an entity.');
 	const c=config.entity.split('.')[0];
-	if (!(config.service || c == 'input_number' || c == 'number')){
-		throw new Error('Please define a number entity.');
+	if (!(config.service || c == 'cover')){
+		throw new Error('Please define a cover entity.');
 	}
 	this.config = {
 		icon_plus: "mdi:plus",
 		icon_minus: "mdi:minus",
-		service: c + ".set_value",
-		param: "value",
+		service: c + ".set_cover_position",
+		param: "position",
 		delay: 1000,
 		speed: 0,
 		refresh: 0,
@@ -407,14 +407,14 @@ shouldUpdate(changedProps) {
 }
 
 static getConfigElement() {
-	return document.createElement("numberbox-card-editor");
+	return document.createElement("coverbox-card-editor");
 }
 
 static getStubConfig() {
 	return {border: true};
 }
 
-} customElements.define('numberbox-card', NumberBox);
+} customElements.define('coverbox-card', CoverBox);
 
 //Editor
 const fireEvent = (node, type, detail = {}, options = {}) => {
@@ -428,7 +428,7 @@ const fireEvent = (node, type, detail = {}, options = {}) => {
 	return event;
 };
 
-class NumberBoxEditor extends LitElement {
+class CoverBoxEditor extends LitElement {
 
 async Pick(){
 	const c="ha-entity-picker";
@@ -693,14 +693,14 @@ updVal(v) {
 }
 
 }
-customElements.define("numberbox-card-editor", NumberBoxEditor);
+customElements.define("coverbox-card-editor", CoverBoxEditor);
 
 })(window.LitElement || Object.getPrototypeOf(customElements.get("hui-masonry-view") ));
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-	type: 'numberbox-card',
-	name: 'Numberbox Card',
+	type: 'coverbox-card',
+	name: 'Coverbox Card',
 	preview: false,
-	description: 'Replace number/input_number sliders with plus and minus buttons'
+	description: 'Replace cover sliders with plus and minus buttons'
 });
