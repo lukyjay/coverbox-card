@@ -1,46 +1,61 @@
 ((LitElement) => {
 
-console.info('COVERBOX_CARD 4.17');
+console.info('COVERBOX_CARD 5.0');
 const html = LitElement.prototype.html;
 const css = LitElement.prototype.css;
+
 class CoverBox extends LitElement {
 
 constructor() {
 	super();
-	this.bounce = false;
+	this.bounce = null;
+	this.rolling = null;
 	this.pending = false;
-	this.rolling = false;
 	this.state = 0;
-	this.old = {state: NaN, t:{}, h:''};
+	this._rolled = false;
+	this.old = { state: NaN, t: {} };
+	this._onWindowRelease = () => this.stopRolling();
 }
 
 render() {
-	if(!this.stateObj){return html`<ha-card>Missing:'${this.config.entity}'</ha-card>`;}
-	
-	const k={name:'friendly_name',icon:'icon',picture:'entity_picture',unit:'unit_of_measurement'};
-	for(const n of Object.keys(k)) {
-		if( this.config[n] === undefined && this.stateObj.attributes[k[n]] ){
-			this.config[n]=this.stateObj.attributes[k[n]];
+	if (!this.config) { return html``; }
+	if (!this.config.entity) {
+		return html`<ha-card>Please select a cover entity.</ha-card>`;
+	}
+	if (!this.stateObj) {
+		return html`<ha-card>Missing entity: ${this.config.entity}</ha-card>`;
+	}
+
+	const attrMap = { name: 'friendly_name', icon: 'icon', picture: 'entity_picture' };
+	for (const n of Object.keys(attrMap)) {
+		if (this.config[n] === undefined && this.stateObj.attributes[attrMap[n]]) {
+			this.config[n] = this.stateObj.attributes[attrMap[n]];
 		}
 	}
 
-	const d={min:0,max:9e9,step:1,toggle:null};
-	for(const j of Object.keys(d)) {
-		const b=j+'_entity';
-		if(b in this.config && this.config[b] in this._hass.states ) {
-			const c=this._hass.states[this.config[b]]; this.old.t[this.config[b]]=c.last_updated
-			if( d[j]!==null && !isNaN(parseFloat(c.state)) ){this.config[j]=c.state;}
-			if(j=='toggle'){this.config[j]=c;}
+	// min / max / step can optionally be driven live from another entity
+	// (e.g. an input_number that caps how far a cover is allowed to open).
+	const numericDefaults = { min: 0, max: 100, step: 1 };
+	for (const j of Object.keys(numericDefaults)) {
+		const entityKey = j + '_entity';
+		if (entityKey in this.config && this.config[entityKey] in this._hass.states) {
+			const c = this._hass.states[this.config[entityKey]];
+			this.old.t[this.config[entityKey]] = c.last_updated;
+			if (!isNaN(parseFloat(c.state))) { this.config[j] = c.state; }
 		}
-		if(d[j]!==null){
-			if(this.config[j] === undefined){ this.config[j]=this.stateObj.attributes[j];}
-			if(isNaN(parseFloat(this.config[j]))){this.config[j]=d[j];}
-		}
+		if (this.config[j] === undefined) { this.config[j] = numericDefaults[j]; }
+		if (isNaN(parseFloat(this.config[j]))) { this.config[j] = numericDefaults[j]; }
+	}
+
+	if ('toggle_entity' in this.config && this.config.toggle_entity in this._hass.states) {
+		const c = this._hass.states[this.config.toggle_entity];
+		this.old.t[this.config.toggle_entity] = c.last_updated;
+		this.config.toggle = c;
 	}
 
 	return html`
-	<ha-card class="${(!this.config.border)?'noborder':''}">
-		${(this.config.icon || this.config.picture || this.config.name) ? html`<div class="${this.config.toggle?'gridt':'grid'}">
+	<ha-card class="${(!this.config.border) ? 'noborder' : ''}">
+		${(this.config.icon || this.config.picture || this.config.name) ? html`<div class="${this.config.toggle ? 'gridt' : 'grid'}">
 		<div class="grid-content grid-left" @click="${() => this.moreInfo()}">
 			${this.config.picture ? html`
 				<state-badge
@@ -51,7 +66,7 @@ render() {
 				.stateObj=${this.stateObj}
 				></state-badge>` : null }
 			<div class="info">
-				${this.config.name?this.config.name:''}
+				${this.config.name ? this.config.name : ''}
 				${this.secondaryInfo()}
 			</div>
 		</div><div class="grid-content grid-right">${this.renderNum()}</div>
@@ -62,11 +77,10 @@ render() {
 `;
 }
 
-updated(x) {
-	if(this.old.h !=''){
-		const a=this.renderRoot.querySelector('.secondary');
-		if(a){a.innerHTML=this.old.h;}
-	}
+updated() {
+	// Keep the "previous state" baseline in sync so shouldUpdate can
+	// correctly skip re-renders when the position hasn't actually changed.
+	this.old.state = this.state;
 }
 
 secondaryInfo(){
@@ -138,13 +152,13 @@ renderNum(){
 	<div class="main">
 		<div class="cur-box">
 		<ha-icon class="padl" tabindex="0" role="button"
-			icon="${this.config.icon_plus}" 
-			@click="${() => this.setNumb(1)}" 
-			@mousedown="${() => this.Press(1)}"
-			@keydown="${(k) => this.Press(1,k)}"
-			@touchstart="${() => this.Press(1)}"
-			@mouseup="${() => this.Press(2)}"
-			@touchend="${() => this.Press(2)}"
+			icon="${this.config.icon_plus}"
+			@click="${() => this.handleClick(1)}"
+			@mousedown="${() => this.startRolling(1)}"
+			@keydown="${(k) => this.handleKey(1, k)}"
+			@touchstart="${() => this.startRolling(1)}"
+			@mouseup="${() => this.stopRolling()}"
+			@touchend="${() => this.stopRolling()}"
 		>
 		</ha-icon>
 		<div class="cur-num-box" @click="${() => this.moreInfo()}" >
@@ -152,12 +166,12 @@ renderNum(){
 		</div>
 		<ha-icon class="padr" tabindex="0" role="button"
 			icon="${this.config.icon_minus}"
-			@click="${() => this.setNumb(0)}"
-			@mousedown="${() => this.Press(0)}"
-			@keydown="${(k) => this.Press(0,k)}"
-			@touchstart="${() => this.Press(0)}"
-			@mouseup="${() => this.Press(2)}"
-			@touchend="${() => this.Press(2)}"
+			@click="${() => this.handleClick(0)}"
+			@mousedown="${() => this.startRolling(0)}"
+			@keydown="${(k) => this.handleKey(0, k)}"
+			@touchstart="${() => this.startRolling(0)}"
+			@mouseup="${() => this.stopRolling()}"
+			@touchend="${() => this.stopRolling()}"
 		>
 		</ha-icon>
 		</div>
@@ -165,109 +179,121 @@ renderNum(){
 	</section>`;
 }
 
+startRolling(dir) {
+	if (!(this.config.speed > 0)) { return; }
+	this.stopRolling();
+	this._rolled = false;
+	window.addEventListener('mouseup', this._onWindowRelease);
+	window.addEventListener('touchend', this._onWindowRelease);
+	this.rolling = setInterval(() => {
+		this._rolled = true;
+		this.setNumb(dir);
+	}, this.config.speed);
+}
 
-
-Press(v,k) {
-	if( k && (k.keyCode == 13 || k.keyCode == 32) ){
-		this.setNumb(v); return;
-	}
-	if( this.config.speed>0 ){
+stopRolling() {
+	if (this.rolling) {
 		clearInterval(this.rolling);
-		if(v<2){this.rolling = setInterval(() => this.setNumb(v), this.config.speed, this);}
+		this.rolling = null;
+	}
+	window.removeEventListener('mouseup', this._onWindowRelease);
+	window.removeEventListener('touchend', this._onWindowRelease);
+}
+
+handleClick(dir) {
+	// Suppress the click that fires right after a long-press/repeat
+	// session ends, so we don't apply one extra step on top of it.
+	if (this._rolled) {
+		this._rolled = false;
+		return;
+	}
+	this.setNumb(dir);
+}
+
+handleKey(dir, k) {
+	if (k && (k.keyCode === 13 || k.keyCode === 32)) {
+		this.setNumb(dir);
 	}
 }
 
-timeNum(x,s,m){
-	x=x+'';
-	if(x.indexOf(':')>0){
-		x = x.split(':');s = 0; m = 1;
-		while (x.length > 0) {
-			s += m * parseInt(x.pop(), 10);
-			m *= 60;
+setNumb(dir){
+	let v = this.pending;
+	if (v === false) {
+		v = Number(this.state);
+		if (isNaN(v)) { v = Number(this.config.min); }
+	}
+	let adval = dir ? (v + Number(this.config.step)) : (v - Number(this.config.step));
+	adval = Math.round(adval * 1e9) / 1e9;
+
+	if (adval === this.state) {
+		clearTimeout(this.bounce);
+		this.bounce = null;
+		this.pending = false;
+		return;
+	}
+
+	if (adval <= Number(this.config.max) && adval >= Number(this.config.min)) {
+		this.pending = adval;
+		if (this.config.delay) {
+			clearTimeout(this.bounce);
+			this.bounce = setTimeout(() => this.publishNum(), this.config.delay);
+		} else {
+			this.publishNum();
 		}
-		x=s;
-	}
-	return Number(x);
-}
-
-numTime(x,f,t,u){
-	if(t=="timehm"){u=1;f=1;}
-	x=Math.round(x);
-	t = (x>=3600 || f)? Math.floor(x/3600).toString().padStart(2,'0') + ':' : '';
-	t += (Math.floor(x/60)-Math.floor(x/3600)*60).toString().padStart(2,'0');
-	if( !u ){
-		t += ':' + Math.round(x%60).toString().padStart(2,'0');
-	}
-	return t;
-}
-
-setNumb(c){
-	let v=this.pending;
-	if( v===false ){ v=this.timeNum(this.state); v=isNaN(v)?this.config.min:v;}
-	let adval=c?(v + Number(this.config.step)):(v - Number(this.config.step));
-	adval=Math.round(adval*1e9)/1e9;
-	if(adval==this.state){
-		clearTimeout(this.bounce);this.pending=false;
-	}else{
-		if(adval <= Number(this.config.max) && adval >= Number(this.config.min)){
-			this.pending = adval;
-			if(this.config.delay){
-				clearTimeout(this.bounce);
-				this.bounce = setTimeout(this.publishNum, this.config.delay, this);
-			}else{
-				this.publishNum(this);
-			}
-		}
 	}
 }
 
-publishNum(dhis){
-	if(dhis.pending===false){return;}
-	const s=dhis.config.service.split('.');
-	if(s[0]=='input_datetime'){dhis.pending=dhis.numTime(dhis.pending,1);}
-	const v = { ...dhis.config.service_params, [dhis.config.param]: dhis.pending };
-	dhis.pending=false;
-	dhis.old.state=dhis.state;
-	dhis._hass.callService(s[0], s[1], v);
+publishNum(){
+	if (this.pending === false) { return; }
+	const s = this.config.service.split('.');
+	const v = { ...this.config.service_params, [this.config.param]: this.pending };
+	this.pending = false;
+	this._hass.callService(s[0], s[1], v);
 }
 
 niceNum(){
-	let fix=0; let v=this.pending;
-	if( v === false ){
-		v=this.state;
-		if(v=='unavailable' || v === null || ( v=='unknown' && this.config.initial === undefined ) ){return '?';}
-		v=this.timeNum(v);
-		if(isNaN(v) && this.config.initial !== undefined){
-			v=Number(this.config.initial);
-			if(isNaN(v)){return this.config.initial;}
+	let v = this.pending;
+	if (v === false) {
+		if (this.stateObj.state === 'unavailable' || this.state === null || this.state === undefined) {
+			return '?';
 		}
-	}	
-	let stp=Number(this.config.step) || 1;
-	if( Math.round(stp) != stp ){
-		fix=stp.toString().split(".")[1].length || 1; stp=fix;
-	}else{ stp=fix; }
-	fix = v.toFixed(fix);
-	const u=this.config.unit;
-	if( u=="time" || u=="timehm"){
-		let t = this.numTime(fix,0,u);
-		return html`${t}`;
-	}
-	if(isNaN(Number(fix))){return '?';}
-	if(typeof u == 'string' && u.startsWith('(')){
-		let value = fix; value = eval(u);
-		return html`${value}`;
+		v = Number(this.state);
+		if (isNaN(v)) {
+			if (this.config.initial !== undefined) {
+				v = Number(this.config.initial);
+				if (isNaN(v)) { return this.config.initial; }
+			} else {
+				return '?';
+			}
+		}
 	}
 
-	const lang={language:this._hass.language, comma_decimal:['en-US','en'], decimal_comma:['de','es','it'], space_comma:['fr','sv','cs'], system:undefined};
-	let g=this._hass.locale.number_format || 'language';
-	if(g!='none'){
-		g=lang.hasOwnProperty(g)? lang[g] : lang.language;
-		fix = new Intl.NumberFormat(g, {maximumFractionDigits: stp, minimumFractionDigits: stp}).format(Number(fix));
+	let fix = 0;
+	const stp = Number(this.config.step) || 1;
+	if (Math.round(stp) !== stp) {
+		fix = (stp.toString().split('.')[1] || '').length || 1;
 	}
-	return u===false ? fix: html`${fix}<span class="cur-unit">${u}</span>`;
+	const fixedVal = v.toFixed(fix);
+	if (isNaN(Number(fixedVal))) { return '?'; }
+
+	const lang = {
+		language: this._hass.language,
+		comma_decimal: ['en-US', 'en'],
+		decimal_comma: ['de', 'es', 'it'],
+		space_comma: ['fr', 'sv', 'cs'],
+		system: undefined,
+	};
+	let out = fixedVal;
+	let g = (this._hass.locale && this._hass.locale.number_format) || 'language';
+	if (g !== 'none') {
+		g = lang.hasOwnProperty(g) ? lang[g] : lang.language;
+		out = new Intl.NumberFormat(g, { maximumFractionDigits: fix, minimumFractionDigits: fix }).format(Number(fixedVal));
+	}
+
+	// Cover positions are percentages by default; allow override or hiding via `unit: false`.
+	const u = this.config.unit === undefined ? '%' : this.config.unit;
+	return u === false ? out : html`${out}<span class="cur-unit">${u}</span>`;
 }
-
-
 
 moreInfo() {
 	const i = this.config.moreinfo;
@@ -288,11 +314,7 @@ static get properties() {
 		_hass: {},
 		config: {},
 		stateObj: {},
-		bounce: {},
-		rolling: {},
 		pending: {},
-		state: {},
-		old: {},
 	};
 }
 
@@ -364,50 +386,70 @@ getCardSize() {
 }
 
 setConfig(config) {
-	if (!config.entity) throw new Error('Please define an entity.');
-	const c=config.entity.split('.')[0];
-	if (!(config.service || c == 'cover')){
+	if (!config.entity) { throw new Error('Please define an entity.'); }
+	const domain = config.entity.split('.')[0];
+	if (domain !== 'cover') {
 		throw new Error('Please define a cover entity.');
 	}
 	this.config = {
-		icon_plus: "mdi:plus",
-		icon_minus: "mdi:minus",
-		service: c + ".set_cover_position",
-		param: "position",
+		icon_plus: 'mdi:plus',
+		icon_minus: 'mdi:minus',
+		service: 'cover.set_cover_position',
+		param: 'position',
+		state_attribute: 'current_position',
 		delay: 1000,
 		speed: 0,
 		refresh: 0,
 		initial: undefined,
 		moreinfo: config.entity,
-		service_params: {entity_id: config.entity},
-		...config
+		service_params: { entity_id: config.entity },
+		...config,
 	};
-	if(this.config.service.split('.').length < 2){
-		this.config.service=c +'.'+this.config.service;
+	if (this.config.service.split('.').length < 2) {
+		this.config.service = domain + '.' + this.config.service;
 	}
 }
 
 set hass(hass) {
-	if (hass && this.config) {
-		this.stateObj = this.config.entity in hass.states ? hass.states[this.config.entity] : null;
-	}
 	this._hass = hass;
-	
-	if (this.stateObj) { 
-		const currentPos = this.stateObj.attributes.current_position;
-	        if (typeof currentPos === 'number' && !isNaN(currentPos)) {
-	        	this.state = currentPos;
-	        } else {
-	                this.state = 0; // Default to 0 as requested
-	        }
+	if (!hass || !this.config || !this.config.entity) { return; }
+
+	this.stateObj = this.config.entity in hass.states ? hass.states[this.config.entity] : null;
+	if (!this.stateObj) { return; }
+
+	// Reads from `current_position` by default, but can be pointed at
+	// `current_tilt_position` (together with the matching service/param)
+	// to drive a tilt slider instead of the main position slider.
+	const attr = this.config.state_attribute || 'current_position';
+	const rawPos = this.stateObj.attributes[attr];
+	if (typeof rawPos === 'number' && !isNaN(rawPos)) {
+		this.state = rawPos;
+	} else if (this.stateObj.state === 'open') {
+		this.state = 100;
+	} else {
+		this.state = 0;
 	}
 }
 
 shouldUpdate(changedProps) {
-	const o = this.old.t;
-	for(const p in o){if(p in this._hass.states && this._hass.states[p].last_updated != o[p]){ return true; }}
-	if( changedProps.has('config') || changedProps.has('stateObj') || changedProps.has('pending') ){
-		if(this.old.state != this.state || this.config.refresh){ return true; }
+	const watched = this.old.t;
+	for (const p in watched) {
+		if (p in this._hass.states && this._hass.states[p].last_updated !== watched[p]) {
+			return true;
+		}
+	}
+	if (changedProps.has('config') || changedProps.has('stateObj') || changedProps.has('pending')) {
+		return this.old.state !== this.state || !!this.config.refresh;
+	}
+	return false;
+}
+
+disconnectedCallback() {
+	super.disconnectedCallback();
+	this.stopRolling();
+	if (this.bounce) {
+		clearTimeout(this.bounce);
+		this.bounce = null;
 	}
 }
 
@@ -415,8 +457,9 @@ static getConfigElement() {
 	return document.createElement("coverbox-card-editor");
 }
 
-static getStubConfig() {
-	return {border: true};
+static getStubConfig(hass, entities) {
+	const coverEntity = (entities || []).find((e) => e.startsWith('cover.'));
+	return { entity: coverEntity || '', border: true };
 }
 
 } customElements.define('coverbox-card', CoverBox);
@@ -438,16 +481,19 @@ class CoverBoxEditor extends LitElement {
 async Pick(){
 	const c="ha-entity-picker";
 	if(!customElements.get(c)){
-		const r = "partial-panel-resolver";
-		await customElements.whenDefined(r);
-		const p = document.createElement(r);
-		p.hass = {panels: [{url_path: "tmp", component_name: "config"}]};
-		p._updateRoutes();
-		await p.routerOptions.routes.tmp.load();
-		const d=document.createElement("ha-panel-config");
-		await d.routerOptions.routes.automation.load();
+		try {
+			const r = "partial-panel-resolver";
+			await customElements.whenDefined(r);
+			const p = document.createElement(r);
+			p.hass = {panels: [{url_path: "tmp", component_name: "config"}]};
+			p._updateRoutes();
+			await p.routerOptions.routes.tmp.load();
+			const d=document.createElement("ha-panel-config");
+			await d.routerOptions.routes.automation.load();
+		} catch (e) {
+			console.warn('coverbox-card: could not preload ha-entity-picker', e);
+		}
 	}
-	const a=document.createElement(c);
 	this.render();
 }
 static get properties() {
@@ -487,7 +533,7 @@ render() {
 		.hass=${this.hass}
 		.value="${this.config.entity}"
 		.configValue=${'entity'}
-		.includeDomains=${['input_number','number']}
+		.includeDomains=${['cover']}
 		@change="${this.updVal}"
 		allow-custom-entity
 	></ha-entity-picker>
@@ -552,7 +598,7 @@ render() {
 		step="any"
 	></ha-textfield>
 	<ha-textfield
-		label="Unit (false to hide)"
+		label="Unit (default %, false to hide)"
 		.value="${(this.config.unit!==undefined)?this.config.unit:''}"
 		.configValue=${'unit'}
 		@input=${this.updVal}
@@ -574,7 +620,7 @@ render() {
 		type="number"
 	></ha-textfield>
 </div>
-<div><b>Advanced Config</b> <a target="_blank" href="https://github.com/htmltiger/numberbox-card#configuration">more info</a></div>
+<div><b>Advanced Config</b></div>
 <div class="side">
 	<ha-textfield
 		label="min"
@@ -661,9 +707,9 @@ render() {
 		@input="${this.updVal}"
 	></ha-textfield>
 	<ha-textfield
-		label="state"
-		.value="${(this.config.state!==undefined)?this.config.state:''}"
-		.configValue="${'state'}"
+		label="state_attribute (e.g. current_tilt_position)"
+		.value="${(this.config.state_attribute!==undefined)?this.config.state_attribute:'current_position'}"
+		.configValue="${'state_attribute'}"
 		@input="${this.updVal}"
 	></ha-textfield>
 </div>
@@ -707,5 +753,5 @@ window.customCards.push({
 	type: 'coverbox-card',
 	name: 'Coverbox Card',
 	preview: false,
-	description: 'Replace cover sliders with plus and minus buttons'
+	description: 'Replace cover position sliders with plus and minus buttons'
 });
