@@ -35,6 +35,7 @@ render() {
 
 	// min / max / step can optionally be driven live from another entity
 	// (e.g. an input_number that caps how far a cover is allowed to open).
+	// Useful for AC static zones (i.e. must be open by x% to prevent damage)
 	const numericDefaults = { min: 0, max: 100, step: 1 };
 	for (const j of Object.keys(numericDefaults)) {
 		const entityKey = j + '_entity';
@@ -78,8 +79,6 @@ render() {
 }
 
 updated() {
-	// Keep the "previous state" baseline in sync so shouldUpdate can
-	// correctly skip re-renders when the position hasn't actually changed.
 	this.old.state = this.state;
 }
 
@@ -438,7 +437,12 @@ shouldUpdate(changedProps) {
 			return true;
 		}
 	}
-	if (changedProps.has('config') || changedProps.has('stateObj') || changedProps.has('pending')) {
+	if (changedProps.has('pending')) {
+		// Always redraw immediately when the user presses +/- so the
+		// pending value shows right away, before HA confirms the change.
+		return true;
+	}
+	if (changedProps.has('config') || changedProps.has('stateObj')) {
 		return this.old.state !== this.state || !!this.config.refresh;
 	}
 	return false;
